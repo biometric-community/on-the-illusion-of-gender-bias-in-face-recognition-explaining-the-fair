@@ -117,6 +117,7 @@ def write_report(cfg, train_s, eval_res, fig_dir: Path, path: Path) -> None:
         f"- Acc FF: **{base.get('acc_ff', float('nan')):.4f}** (n={base.get('n_ff', 0)})",
         f"- Acc MM: **{base.get('acc_mm', float('nan')):.4f}** (n={base.get('n_mm', 0)})",
         f"- Gap (MM−FF): **{base.get('gap_mm_minus_ff', float('nan')):.4f}**",
+        f"- iGARBE at FMR=1e-3: **{base.get('igarbe', float('nan')):.4f}**",
         f"- Attr clusters (|corr|≥0.5): {fair.get('n_attr_clusters', 0)}",
         "",
         f"![Gap]({fig_dir.as_posix()}/gender_gap.svg)",

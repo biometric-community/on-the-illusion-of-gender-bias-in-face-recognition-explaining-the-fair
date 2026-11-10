@@ -22,11 +22,12 @@ if str(_ROOT) not in sys.path:
 from genderbias.data.attrs import CelebAAttrDataset, resolve_celeba_root
 from genderbias.data.pairs import build_calfw, build_cplfw, build_lfw
 from genderbias.fairness.metrics import (
-    best_threshold,
+    cluster_attributes,
     cluster_correlated,
     gender_gap,
     pearson_corr_matrix,
     search_vanishing_filters,
+    threshold_at_fmr,
 )
 from genderbias.models.fr_net import FaceEmbedder
 
@@ -43,17 +44,26 @@ def _device(cfg: dict, override: Optional[str] = None) -> torch.device:
     return torch.device(name)
 
 
+def equal_error_rate(scores: np.ndarray, labels: np.ndarray) -> float:
+    """Error rate at the threshold where the false match and false non-match rates meet."""
+    pos = np.sort(scores[labels == 1])
+    neg = np.sort(scores[labels == 0])
+    if len(pos) == 0 or len(neg) == 0:
+        return float("nan")
+    thresholds = np.unique(scores)
+    fnmr = np.searchsorted(pos, thresholds, side="left") / len(pos)
+    fmr = 1.0 - np.searchsorted(neg, thresholds, side="left") / len(neg)
+    i = int(np.argmin(np.abs(fmr - fnmr)))
+    return float(0.5 * (fmr[i] + fnmr[i]))
+
+
 def best_acc_eer(scores: np.ndarray, labels: np.ndarray) -> Tuple[float, float]:
     thresholds = np.linspace(scores.min(), scores.max(), 200)
     best_acc, best_eer = 0.0, 1.0
     for t in thresholds:
         pred = (scores >= t).astype(np.int32)
         best_acc = max(best_acc, float((pred == labels).mean()))
-        pos, neg = labels == 1, labels == 0
-        if pos.any() and neg.any():
-            fpr = float((pred[neg] == 1).mean())
-            fnr = float((pred[pos] == 0).mean())
-            best_eer = min(best_eer, 0.5 * (fpr + fnr))
+    best_eer = equal_error_rate(scores, labels)
     return best_acc, best_eer
 
 
@@ -119,7 +129,9 @@ class CelebAProbePairs(Dataset):
 
 
 @torch.no_grad()
-def eval_gender_bias(model, probe: CelebAProbePairs, device, batch_size, nw, nd_names, min_pairs) -> Dict:
+def eval_gender_bias(
+    model, probe: CelebAProbePairs, device, batch_size, nw, nd_names, min_pairs, fmr: float = 1e-3
+) -> Dict:
     loader = DataLoader(probe, batch_size=batch_size, shuffle=False, num_workers=nw)
     scores, labels, gps, attrs_a, attrs_b = [], [], [], [], []
     model.eval()
@@ -136,16 +148,21 @@ def eval_gender_bias(model, probe: CelebAProbePairs, device, batch_size, nw, nd_
     gp = np.concatenate(gps)
     aa = np.concatenate(attrs_a)
     ab = np.concatenate(attrs_b)
-    thr = best_threshold(s, y)
+    # Sec. IV-C: decisions at the threshold where FMR = 1e-3 (Frontex)
+    thr = threshold_at_fmr(s, y, fmr)
     base = gender_gap(s, y, gp, thr)
     print(
         f"[gap] thr={thr:.3f} all={base['acc_all']:.4f} "
-        f"FF={base['acc_ff']:.4f} MM={base['acc_mm']:.4f} gap={base['gap_mm_minus_ff']:.4f}"
+        f"FF={base['acc_ff']:.4f} MM={base['acc_mm']:.4f} gap={base['gap_mm_minus_ff']:.4f} "
+        f"iGARBE={base['igarbe']:.4f}"
     )
     # attribute correlation on unique images approximated via attr_a
     corr = pearson_corr_matrix(aa)
     clusters = cluster_correlated(nd_names, corr, thresh=0.5)
-    filters = search_vanishing_filters(s, y, gp, aa, ab, nd_names, thr, min_pairs=min_pairs, top_k=12)
+    # Sec. III-C: the decorrelated clusters are the attributes of all further analyses
+    filters = search_vanishing_filters(
+        s, y, gp, *cluster_attributes(aa, ab, nd_names, clusters, corr), thr, min_pairs=min_pairs, top_k=12
+    )
     best = filters[1] if len(filters) > 1 else None
     if best:
         print(

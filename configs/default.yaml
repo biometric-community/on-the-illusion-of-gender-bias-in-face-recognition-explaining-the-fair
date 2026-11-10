@@ -26,6 +26,7 @@ eval:
   n_pos_pairs: 2000
   n_neg_pairs: 2000
   min_filter_pairs: 40
+  operating_fmr: 0.001
 paths:
   checkpoint_dir: outputs/checkpoints/full
   log_dir: outputs/logs/full

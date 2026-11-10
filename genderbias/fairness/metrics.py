@@ -18,31 +18,76 @@ def pearson_corr_matrix(X: np.ndarray) -> np.ndarray:
 
 
 def cluster_correlated(names: Sequence[str], corr: np.ndarray, thresh: float = 0.5) -> List[List[str]]:
-    """Greedy merge of attribute pairs with |corr| >= thresh (paper-style clustering)."""
-    d = len(names)
-    parent = list(range(d))
-
-    def find(i):
-        while parent[i] != i:
-            parent[i] = parent[parent[i]]
-            i = parent[i]
-        return i
-
-    pairs = []
-    for i in range(d):
-        for j in range(i + 1, d):
-            pairs.append((abs(corr[i, j]), i, j))
-    pairs.sort(reverse=True)
-    for a, i, j in pairs:
-        if a < thresh:
+    """Algorithm 3: repeatedly merge the two clusters with the highest mean absolute Pearson
+    correlation between their members, until no pair of clusters reaches `thresh`."""
+    absr = np.abs(np.asarray(corr, dtype=np.float64))
+    clusters: List[List[int]] = [[i] for i in range(len(names))]
+    while len(clusters) > 1:
+        best, pair = -1.0, None
+        for a in range(len(clusters)):
+            for b in range(a + 1, len(clusters)):
+                link = float(absr[np.ix_(clusters[a], clusters[b])].mean())
+                if link > best:
+                    best, pair = link, (a, b)
+        if best < thresh:
             break
-        ri, rj = find(i), find(j)
-        if ri != rj:
-            parent[rj] = ri
-    groups: Dict[int, List[str]] = {}
-    for i, n in enumerate(names):
-        groups.setdefault(find(i), []).append(n)
-    return list(groups.values())
+        a, b = pair
+        clusters[a] = clusters[a] + clusters[b]
+        del clusters[b]
+    return [[names[i] for i in c] for c in clusters]
+
+
+def cluster_attributes(
+    attr_a: np.ndarray,
+    attr_b: np.ndarray,
+    names: Sequence[str],
+    clusters: Sequence[Sequence[str]],
+    corr: np.ndarray,
+) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    """Sec. III-C2: harmonise each cluster into one binary attribute. Members that are
+    negatively correlated with the cluster's first attribute are flipped, then the cluster
+    is set when most of its members are."""
+    index = {n: i for i, n in enumerate(names)}
+    cols_a, cols_b, cluster_names = [], [], []
+    for cluster in clusters:
+        idx = [index[n] for n in cluster]
+        flip = np.array([corr[idx[0], j] < 0 for j in idx])
+        for attrs, cols in ((attr_a, cols_a), (attr_b, cols_b)):
+            vals = attrs[:, idx].astype(np.float64)
+            vals[:, flip] = 1.0 - vals[:, flip]
+            cols.append((vals.mean(axis=1) >= 0.5).astype(np.int8))
+        cluster_names.append("+".join(cluster))
+    return np.stack(cols_a, axis=1), np.stack(cols_b, axis=1), cluster_names
+
+
+def gini(values: Sequence[float]) -> float:
+    """Eq. 2: Gini coefficient adjusted for the number of groups."""
+    x = np.asarray(values, dtype=np.float64)
+    n, mean = len(x), x.mean()
+    if n < 2 or mean == 0:
+        return 0.0
+    return float(n / (n - 1) * np.abs(x[:, None] - x[None, :]).sum() / (2 * n**2 * mean))
+
+
+def igarbe(fmr_by_group: Sequence[float], fnmr_by_group: Sequence[float], alpha: float = 0.5) -> float:
+    """Eqs. 1 and 3: iGARBE = 1 - (alpha * G(FMR) + (1 - alpha) * G(FNMR)); 1 is perfectly fair."""
+    return float(1.0 - (alpha * gini(fmr_by_group) + (1.0 - alpha) * gini(fnmr_by_group)))
+
+
+def threshold_at_fmr(scores: np.ndarray, labels: np.ndarray, fmr: float = 1e-3) -> float:
+    """Smallest threshold whose false match rate does not exceed `fmr`."""
+    neg = np.sort(scores[labels == 0])[::-1]
+    k = int(np.floor(fmr * len(neg)))
+    if k >= len(neg):
+        return float(neg[-1])
+    return float(np.nextafter(neg[k], np.inf))
+
+
+def _error_rates(scores: np.ndarray, labels: np.ndarray, threshold: float) -> Tuple[float, float]:
+    genuine, impostor = scores[labels == 1], scores[labels == 0]
+    fnmr = float((genuine < threshold).mean()) if len(genuine) else float("nan")
+    fmr = float((impostor >= threshold).mean()) if len(impostor) else float("nan")
+    return fmr, fnmr
 
 
 def verification_accuracy(scores: np.ndarray, labels: np.ndarray, threshold: float) -> float:
@@ -75,7 +120,14 @@ def gender_gap(
     acc_ff = verification_accuracy(scores[ff], labels[ff], threshold) if ff.any() else float("nan")
     acc_mm = verification_accuracy(scores[mm], labels[mm], threshold) if mm.any() else float("nan")
     acc_all = verification_accuracy(scores, labels, threshold)
+    fmr_ff, fnmr_ff = _error_rates(scores[ff], labels[ff], threshold)
+    fmr_mm, fnmr_mm = _error_rates(scores[mm], labels[mm], threshold)
     return {
+        "fmr_ff": fmr_ff,
+        "fnmr_ff": fnmr_ff,
+        "fmr_mm": fmr_mm,
+        "fnmr_mm": fnmr_mm,
+        "igarbe": igarbe([fmr_ff, fmr_mm], [fnmr_ff, fnmr_mm]),
         "acc_all": acc_all,
         "acc_ff": acc_ff,
         "acc_mm": acc_mm,
