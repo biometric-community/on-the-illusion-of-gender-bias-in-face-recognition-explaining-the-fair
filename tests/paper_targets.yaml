@@ -1,0 +1,14 @@
+# Kurz, Wu, Bowyer & Terhoerst, "On the 'Illusion' of Gender Bias in Face Recognition:
+# Explaining the Fairness Issue Through Non-demographic Attributes", IEEE TBIOM,
+# arXiv:2501.12020.
+source: arXiv:2501.12020
+
+# Sec. IV-C: errors are FNMRs at the threshold where FMR = 1e-3 (Frontex recommendation).
+operating_fmr: 0.001
+
+# Abstract: the gender gap vanishes for some attribute combinations. A gap of at most one
+# percentage point counts as vanished here.
+vanished_gap: 0.01
+
+# The paper studies working face recognisers; LFW accuracy of 90% is a loose floor.
+clean_lfw_accuracy_floor: 90.0
