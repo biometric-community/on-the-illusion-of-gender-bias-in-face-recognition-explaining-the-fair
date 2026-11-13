@@ -118,6 +118,8 @@ def write_report(cfg, train_s, eval_res, fig_dir: Path, path: Path) -> None:
         f"- Acc MM: **{base.get('acc_mm', float('nan')):.4f}** (n={base.get('n_mm', 0)})",
         f"- Gap (MM−FF): **{base.get('gap_mm_minus_ff', float('nan')):.4f}**",
         f"- iGARBE at FMR=1e-3: **{base.get('igarbe', float('nan')):.4f}**",
+        f"- FNMR at FMR=1e-3: female **{base.get('fnmr_ff', float('nan')):.4f}**, "
+        f"male **{base.get('fnmr_mm', float('nan')):.4f}**",
         f"- Attr clusters (|corr|≥0.5): {fair.get('n_attr_clusters', 0)}",
         "",
         f"![Gap]({fig_dir.as_posix()}/gender_gap.svg)",
@@ -129,15 +131,18 @@ def write_report(cfg, train_s, eval_res, fig_dir: Path, path: Path) -> None:
         lines += [
             f"- Best filter: `{best.get('filter')}`",
             f"- Filtered gap: **{best.get('gap', float('nan')):.4f}** (AFI={best.get('afi', float('nan')):.4f}, n={best.get('n_pairs', 0)})",
+            f"- Filtered iGARBE: **{best.get('igarbe', float('nan')):.4f}** "
+            f"(FNMR female {best.get('fnmr_ff', float('nan')):.4f}, male {best.get('fnmr_mm', float('nan')):.4f})",
             "",
         ]
     lines += [
-        "| Filter | |Gap| | AFI | N |",
-        "|--------|------|-----|---|",
+        "| Filter | iGARBE | FNMR F | FNMR M | |Gap| | AFI | N |",
+        "|--------|--------|--------|--------|------|-----|---|",
     ]
     for f in filters[:8]:
         lines.append(
-            f"| {f['filter']} | {abs(f['gap']):.4f} | {f['afi']:.4f} | {f['n_pairs']} |"
+            f"| {f['filter']} | {f.get('igarbe', float('nan')):.4f} | {f.get('fnmr_ff', float('nan')):.4f} | "
+            f"{f.get('fnmr_mm', float('nan')):.4f} | {abs(f['gap']):.4f} | {f['afi']:.4f} | {f['n_pairs']} |"
         )
     lines += [
         "",

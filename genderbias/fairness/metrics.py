@@ -155,7 +155,9 @@ def search_vanishing_filters(
 ) -> List[Dict]:
     """
     Unsupervised search: require both images share attr i==1 and attr j==1 (or both 0).
-    Rank by reduction in |gender gap|.
+    Sec. III-B: rank by iGARBE at the fixed-FMR threshold (1 is perfectly fair), then by
+    |gender gap|. Each filter also reports both genders' FNMR, so a gap closed by raising
+    the male error rate is visible.
     attr_*: (N_pairs, D_nd) binary attributes of image A / B in each pair.
     """
     gap0 = gender_gap(scores, labels, gender_pair, threshold)
@@ -181,6 +183,9 @@ def search_vanishing_filters(
                     "gap": g["gap_mm_minus_ff"],
                     "acc_ff": g["acc_ff"],
                     "acc_mm": g["acc_mm"],
+                    "fnmr_ff": g["fnmr_ff"],
+                    "fnmr_mm": g["fnmr_mm"],
+                    "igarbe": g["igarbe"],
                     "afi": absolute_fairness_impact(base, g["gap_mm_minus_ff"]),
                 }
             )
@@ -205,8 +210,11 @@ def search_vanishing_filters(
                     "gap": g["gap_mm_minus_ff"],
                     "acc_ff": g["acc_ff"],
                     "acc_mm": g["acc_mm"],
+                    "fnmr_ff": g["fnmr_ff"],
+                    "fnmr_mm": g["fnmr_mm"],
+                    "igarbe": g["igarbe"],
                     "afi": absolute_fairness_impact(base, g["gap_mm_minus_ff"]),
                 }
             )
-    results.sort(key=lambda r: (-r["afi"], abs(r["gap"])))
+    results.sort(key=lambda r: (-(r["igarbe"] if np.isfinite(r["igarbe"]) else -np.inf), abs(r["gap"])))
     return [{"baseline_gap": base, **gap0}] + results[:top_k]

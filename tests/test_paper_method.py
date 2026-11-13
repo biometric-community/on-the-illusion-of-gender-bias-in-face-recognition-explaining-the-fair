@@ -69,6 +69,23 @@ def test_filter_search_uses_the_decorrelated_clusters():
     assert call and "clusters" in call.group(1)
 
 
+def test_filters_are_ranked_by_igarbe():
+    """Sec. III-B: attribute combinations are judged by their iGARBE score at a fixed FMR."""
+    rng = np.random.default_rng(0)
+    n = 3000
+    labels = rng.integers(0, 2, n)
+    scores = rng.normal(0, 1, n) + 2.5 * labels
+    groups = rng.integers(0, 2, n)
+    attrs = (rng.random((n, 5)) > 0.5).astype(np.int8)
+    names = [f"a{i}" for i in range(5)]
+    thr = metrics.threshold_at_fmr(scores, labels, 0.01)
+    found = metrics.search_vanishing_filters(scores, labels, groups, attrs, attrs, names, thr, top_k=20)[1:]
+    values = [f["igarbe"] for f in found]
+    assert len(values) > 2
+    assert values == sorted(values, reverse=True)
+    assert all({"fnmr_ff", "fnmr_mm"} <= set(f) for f in found)
+
+
 def test_eer_is_where_false_match_and_false_non_match_rates_meet():
     """The EER is the error rate where FMR equals FNMR, not the lowest half total error rate."""
     scores = np.array([0.6, 0.7, 0.8, 0.9, 0.0, 0.1, 0.2, 0.65])
